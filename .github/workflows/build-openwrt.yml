@@ -1,31 +1,41 @@
-name: Build Custom OpenWrt & Merge Full Flash Dump
+name: Build OpenWrt Custom for Davolink GAPD-7200
 
 on:
-  workflow_dispatch: # تشغيل يدوي بضغطة زر
+  repository_dispatch:
+  workflow_dispatch:
+
+env:
+  REPO_URL: https://github.com/openwrt/openwrt
+  REPO_BRANCH: openwrt-23.05
+  TZ: Asia/Riyadh
 
 jobs:
-  build_and_merge:
+  build:
     runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Initialize Environment Dependencies
+    - name: Initialization Environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get -qq update
-        sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano p7zip p7zip-full patch pkgconf python3 python3-pip qemu-utils rsync scons squashfs-tools subversion swig texinfo u-boot-tools upx-ucl unzip xmlto xz-utils zlib1g-dev libz-dev time xxd
+        sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils qemu-utils rsync scons squashfs-tools subversion swig texinfo u-boot-tools upx-ucl unzip vim wget xmlto xz-utils zlib1g-dev
         sudo -E apt-get -qq autoremove --purge
         sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        sudo mkdir -p /workdir
+        sudo chown $USER:$USER /workdir
 
-    - name: Clone OpenWrt Source Code
+    - name: Clone Source Code
+      working-directory: /workdir
       run: |
-        git clone https://github.com/openwrt/openwrt.git openwrt
-        cd openwrt
-        git checkout openwrt-23.05
+        df -hT $PWD
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        ln -sf /workdir/openwrt $GITHUB_WORKSPACE/openwrt
 
     - name: Update & Install Feeds
       run: |
@@ -33,70 +43,88 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    - name: Inject Custom Board Map & Settings
+    # ==================== خطوة نقل وحقن ملف الـ DTS تلقائياً ====================
+    - name: Inject and Copy Custom DTS File
       run: |
-        # 1. نسخ ملف الـ DTS إلى مساره القياسي لتعريف جهاز Davolink
         mkdir -p openwrt/target/linux/ipq40xx/files/arch/arm/boot/dts/
-        if [ -f "qcom-ipq4019-gapd7200.dts" ]; then
-          cp qcom-ipq4019-gapd7200.dts openwrt/target/linux/ipq40xx/files/arch/arm/boot/dts/
-        fi
-        
-        # 2. دمج مجلد files المخصص بالكامل تلقائياً (الشبكة والـ DHCP)
-        if [ -d "files" ]; then
-          mkdir -p openwrt/files
-          cp -r files/* openwrt/files/
-        fi
+        cp configs/qcom-ipq4019-gapd7200.dts openwrt/target/linux/ipq40xx/files/arch/arm/boot/dts/
+        echo "DTS File Injected Successfully!"
+    # ============================================================================
 
-        # 3. تعديل الـ Makefile لإدراج جهاز Davolink GAPD-7200 رسمياً
-        echo -e '\n\ndefine Device/davolink_gapd-7200\n\t$(call Device/CcNewifiNetgear)\n\tDEVICE_VENDOR := Davolink\n\tDEVICE_MODEL := GAPD-7200\n\tDEVICE_DTS := qcom-ipq4019-gapd7200\n\tKERNEL_SIZE := 4096k\n\tIMAGE_SIZE := 122880k\n\tBLOCKSIZE := 128k\n\tPAGESIZE := 2048\n\tIMAGES := sysupgrade.bin\nendef\nTARGET_DEVICES += davolink_gapd-7200' >> openwrt/target/linux/ipq40xx/image/generic.mk
-
-    - name: Load Config Seed
+    - name: Generate Custom Configurations (All Features)
       run: |
-        cat << 'EOF' > openwrt/.config
-        CONFIG_TARGET_ipq40xx=y
-        CONFIG_TARGET_ipq40xx_generic=y
-        CONFIG_TARGET_DEVICE_ipq40xx_generic_DEVICE_davolink_gapd-7200=y
-        CONFIG_PACKAGE_luci=y
-        CONFIG_PACKAGE_luci-ssl=y
-        CONFIG_PACKAGE_kmod-eoip=y
-        CONFIG_PACKAGE_lldpd=y
-        CONFIG_PACKAGE_luci-app-watchcat=y
-        CONFIG_PACKAGE_luci-app-ttyd=y
-        EOF
-        
         cd openwrt
+        
+        # 1. إضافة جينيريك البناء لمعالج IPQ40xx والجهاز
+        echo "CONFIG_TARGET_ipq40xx=y" > .config
+        echo "CONFIG_TARGET_ipq40xx_DEVICE_Davolink_gapd-7200=y" >> .config
+        
+        # 2. إضافة حزم الميزات المطلوبة (WatchCat, Terminal, LLDP, EoIP)
+        echo "CONFIG_PACKAGE_luci=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-watchcat=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
+        echo "CONFIG_PACKAGE_lldpd=y" >> .config
+        echo "CONFIG_PACKAGE_luci-app-lldpd=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-ip_vti=y" >> .config
+        echo "CONFIG_PACKAGE_kmod-eoip=y" >> .config
+        echo "CONFIG_PACKAGE_ath10k-firmware-qca4019-ct=y" >> .config
+        
+        # تثبيت الإعدادات تلقائياً وتوليد الـ .config النهائي
         make defconfig
 
-    - name: Compile Custom Firmware
+    - name: Inject Custom Network & Wireless Scripts (Permanent Fixes)
       run: |
         cd openwrt
-        make -j$(nproc) || make -j1 V=s
+        mkdir -p files/etc/config
+        mkdir -p files/etc/uci-defaults
 
-    - name: Execute Cloud Merge (دمج الفلاشة الكاملة 32MB)
+        # سكربت الدمج النهائي للبورتات (5 بورت كسوتش LAN) وإيقاف الـ DHCP نهائياً لمنع القفلات
+        cat << 'EOF' > files/etc/uci-defaults/99-custom-network
+        uci del network.wan
+        uci del network.wan6
+        uci set network.lan.device='br-lan'
+        uci set network.lan.proto='dhcp'
+        uci del dhcp.lan
+        uci commit network
+        uci commit dhcp
+        EOF
+
+        # سكربت تفعيل الواي فاي تلقائياً برابط ثابت وقوة ربط واحترافية الباور العالي 30dBm
+        cat << 'EOF' > files/etc/uci-defaults/99-custom-wireless
+        uci set wireless.radio0.disabled='0'
+        uci set wireless.radio1.disabled='0'
+        uci set wireless.radio0.country='US'
+        uci set wireless.radio1.country='US'
+        uci set wireless.radio0.txpower='30'
+        uci set wireless.radio1.txpower='30'
+        uci set wireless.radio1.htmode='VHT80'
+        uci commit wireless
+        wifi
+        EOF
+        
+        chmod +x files/etc/uci-defaults/99-custom-network
+        chmod +x files/etc/uci-defaults/99-custom-wireless
+
+    - name: Download Package Dependencies
+      id: package
       run: |
-        find openwrt/bin/targets/ipq40xx/generic/ -type f -name "*sysupgrade.bin" -o -name "*.bin" | head -n 1 | xargs -I {} cp {} openwrt_kernel.bin
-        
-        # إنشاء مساحة الفلاشة الفارغة
-        dd if=/dev/zero ibs=1M count=32 | tr "\000" "\377" > FULL_FLASH_DUMP_MUKTAMIL.bin
-        
-        # حقن الملفات العشرة من القائمة الرئيسية للمستودع في أماكنها الدقيقة
-        [ -f "SBL1.bin" ] && dd if=SBL1.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=0 conv=notrunc
-        [ -f "MIBIB.bin" ] && dd if=MIBIB.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=256 conv=notrunc
-        [ -f "BOOTCONFIG.bin" ] && dd if=BOOTCONFIG.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=512 conv=notrunc
-        [ -f "CDT.bin" ] && dd if=CDT.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=768 conv=notrunc
-        [ -f "DDRPARAMS.bin" ] && dd if=DDRPARAMS.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=1024 conv=notrunc
-        [ -f "QSEE.bin" ] && dd if=QSEE.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=1280 conv=notrunc
-        [ -f "RESV.bin" ] && dd if=RESV.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=2304 conv=notrunc
-        [ -f "APPSBL.bin" ] && dd if=APPSBL.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=3328 conv=notrunc
-        [ -f "APPSBLENV.bin" ] && dd if=APPSBLENV.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=4352 conv=notrunc
-        [ -f "ART.bin" ] && dd if=ART.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=4608 conv=notrunc
-        
-        # حقن كيرنل ونظام تشغيل OpenWrt المطور
-        dd if=openwrt_kernel.bin of=FULL_FLASH_DUMP_MUKTAMIL.bin bs=1K seek=5120 conv=notrunc
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
 
-    - name: Upload Full Flash Dump File
-      uses: actions/upload-artifact@v4
+    - name: Compile the Firmware
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Upload Firmware Artifacts
+      uses: actions/checkout@v4
+      if: steps.compile.outputs.status == 'success'
       with:
-        name: Davolink-GAPD7200-MUKTAMIL-Dump
-        path: FULL_FLASH_DUMP_MUKTAMIL.bin
+        name: OpenWrt_Davolink_GAPD7200
+        path: openwrt/bin/targets/ipq40xx/generic/*
 
