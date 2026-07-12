@@ -43,39 +43,64 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    # ==================== خطوة نقل وحقن ملف الـ DTS تلقائياً ====================
-    - name: Inject and Copy Custom DTS File
+    # ==================== خطوة تسجيل البوردة وحقنها برمجياً في السورس ====================
+    - name: Register and Inject Device into OpenWrt Target
       run: |
-        mkdir -p openwrt/target/linux/ipq40xx/files/arch/arm/boot/dts/
-        cp configs/qcom-ipq4019-gapd7200.dts openwrt/target/linux/ipq40xx/files/arch/arm/boot/dts/
-        echo "DTS File Injected Successfully!"
+        cd openwrt
+        
+        # 1. إنشاء مسار ملف الـ DTS وحقنه
+        mkdir -p target/linux/ipq40xx/files/arch/arm/boot/dts/
+        if [ -f "$GITHUB_WORKSPACE/configs/qcom-ipq4019-gapd7200.dts" ]; then
+          cp "$GITHUB_WORKSPACE/configs/qcom-ipq4019-gapd7200.dts" target/linux/ipq40xx/files/arch/arm/boot/dts/
+        elif [ -f "$GITHUB_WORKSPACE/gapd7200.dts" ]; then
+          cp "$GITHUB_WORKSPACE/gapd7200.dts" target/linux/ipq40xx/files/arch/arm/boot/dts/qcom-ipq4019-gapd7200.dts
+        fi
+
+        # 2. تعديل ملف image/generic.mk لإجبار الكومبايلر على بناء وتوليد ملف يحمل اسم جهازك وثغرة تفليشه
+        cat << 'EOF' >> target/linux/ipq40xx/image/generic.mk
+
+        define Device/Davolink_gapd-7200
+          DEVICE_VENDOR := Davolink
+          DEVICE_MODEL := GAPD-7200
+          SOC := qcom-ipq4019
+          DEVICE_DTS := qcom-ipq4019-gapd7200
+          IMAGE_SIZE := 30464k
+          IMAGES := sysupgrade.bin
+          IMAGE/sysupgrade.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | pad-rootfs | append-metadata
+        endef
+        TARGET_DEVICES += Davolink_gapd-7200
+        EOF
+        
+        echo "Device definition injected successfully!"
 
     # ==================== خطوة نقل وحقن ملفات الـ ART العشرة ====================
     - name: Inject and Copy Custom Firmware ART Files
       run: |
-        mkdir -p openwrt/package/firmware/ipq-wifi/board-to-bin/
-        cp -r firmware-art/* openwrt/package/firmware/ipq-wifi/board-to-bin/
-        echo "All 10 ART/Calibration files injected successfully!"
+        cd openwrt
+        mkdir -p package/firmware/ipq-wifi/board-to-bin/
+        if [ -d "$GITHUB_WORKSPACE/firmware-art" ]; then
+          cp -r $GITHUB_WORKSPACE/firmware-art/* package/firmware/ipq-wifi/board-to-bin/
+        fi
+        echo "ART/Calibration files processed."
 
     # ==================== خطوة نقل ملفات الإعدادات الثابتة (Network & DHCP) ====================
-    - name: Inject Custom Configuration Files (network & dhcp)
+    - name: Inject Custom Configuration Files
       run: |
-        if [ -d "files" ]; then
-          cp -r files openwrt/
-          echo "Custom network, dhcp, and system files injected successfully!"
-        else
-          echo "Warning: files directory not found!"
+        cd openwrt
+        if [ -d "$GITHUB_WORKSPACE/files" ]; then
+          cp -r $GITHUB_WORKSPACE/files .
         fi
 
-    - name: Generate Custom Configurations (All Features)
+    - name: Generate Custom Configurations (Force Target Device)
       run: |
         cd openwrt
         
-        # 1. إضافة جينيريك البناء لمعالج IPQ40xx والجهاز
+        # إجبار البناء على استهداف البوردة المضافة حديثاً بشكل صريح وثابت
         echo "CONFIG_TARGET_ipq40xx=y" > .config
+        echo "CONFIG_TARGET_ipq40xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq40xx_DEVICE_Davolink_gapd-7200=y" >> .config
         
-        # 2. إضافة حزم الميزات المطلوبة (WatchCat, Terminal, LLDP, EoIP)
+        # إضافة حزم الميزات المطلوبة
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-watchcat=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
@@ -87,12 +112,10 @@ jobs:
         
         make defconfig
 
-    - name: Inject Custom Wireless Script (Permanent Fixes)
+    - name: Inject Custom Wireless Script
       run: |
         cd openwrt
         mkdir -p files/etc/uci-defaults
-
-        # سكربت تفعيل الواي فاي تلقائياً برابط ثابت وقوة ربط واحترافية الباور العالي 30dBm
         cat << 'EOF' > files/etc/uci-defaults/99-custom-wireless
         uci set wireless.radio0.disabled='0'
         uci set wireless.radio1.disabled='0'
@@ -104,7 +127,6 @@ jobs:
         uci commit wireless
         wifi
         EOF
-        
         chmod +x files/etc/uci-defaults/99-custom-wireless
 
     - name: Download Package Dependencies
