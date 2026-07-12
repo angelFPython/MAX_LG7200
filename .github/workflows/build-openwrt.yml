@@ -43,64 +43,59 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    # ==================== خطوة تسجيل البوردة وحقنها برمجياً في السورس ====================
-    - name: Register and Inject Device into OpenWrt Target
+    # ==================== سحب ملف الـ DTS المعدل وحقنه ====================
+    - name: Inject Custom DTS into NAND Target
       run: |
         cd openwrt
-        
-        # 1. إنشاء مسار ملف الـ DTS وحقنه
         mkdir -p target/linux/ipq40xx/files/arch/arm/boot/dts/
+        
+        # سحب الملف مباشرة من المسار الذي حددته بالمستودع لقراءته
         if [ -f "$GITHUB_WORKSPACE/configs/qcom-ipq4019-gapd7200.dts" ]; then
-          cp "$GITHUB_WORKSPACE/configs/qcom-ipq4019-gapd7200.dts" target/linux/ipq40xx/files/arch/arm/boot/dts/
-        elif [ -f "$GITHUB_WORKSPACE/gapd7200.dts" ]; then
-          cp "$GITHUB_WORKSPACE/gapd7200.dts" target/linux/ipq40xx/files/arch/arm/boot/dts/qcom-ipq4019-gapd7200.dts
+          cp "$GITHUB_WORKSPACE/configs/qcom-ipq4019-gapd7200.dts" target/linux/ipq40xx/files/arch/arm/boot/dts/qcom-ipq4019-gapd7200.dts
+          echo "DTS file copied successfully from configs/"
+        else
+          echo "ERROR: DTS File not found in configs/qcom-ipq4019-gapd7200.dts" && exit 1
         fi
 
-        # 2. تعديل ملف image/generic.mk لإجبار الكومبايلر على بناء وتوليد ملف يحمل اسم جهازك وثغرة تفليشه
-        cat << 'EOF' >> target/linux/ipq40xx/image/generic.mk
+        # تعديل ملف nand.mk لإدخال تعريفات وعمارة جهازك
+        cat << 'EOF' >> target/linux/ipq40xx/image/nand.mk
 
-        define Device/Davolink_gapd-7200
+        define Device/davolink_gapd-7200
           DEVICE_VENDOR := Davolink
           DEVICE_MODEL := GAPD-7200
           SOC := qcom-ipq4019
           DEVICE_DTS := qcom-ipq4019-gapd7200
-          IMAGE_SIZE := 30464k
+          KERNEL_SIZE := 4096k
+          BLOCKSIZE := 128k
+          PAGESIZE := 2048
+          VID_HDR_OFFSET := 2048
           IMAGES := sysupgrade.bin
-          IMAGE/sysupgrade.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | append-rootfs | pad-rootfs | append-metadata
+          IMAGE/sysupgrade.bin := append-kernel | pad-to $$$$(KERNEL_SIZE) | append-ubi | append-metadata
         endef
-        TARGET_DEVICES += Davolink_gapd-7200
+        TARGET_DEVICES += davolink_gapd-7200
         EOF
         
-        echo "Device definition injected successfully!"
+        echo "Device injected into NAND profile successfully!"
 
-    # ==================== خطوة نقل وحقن ملفات الـ ART العشرة ====================
-    - name: Inject and Copy Custom Firmware ART Files
+    # ==================== حقن ملفات المعايرة الـ ART المفتوحة ====================
+    - name: Inject Custom Firmware ART Files
       run: |
         cd openwrt
         mkdir -p package/firmware/ipq-wifi/board-to-bin/
         if [ -d "$GITHUB_WORKSPACE/firmware-art" ]; then
           cp -r $GITHUB_WORKSPACE/firmware-art/* package/firmware/ipq-wifi/board-to-bin/
         fi
-        echo "ART/Calibration files processed."
 
-    # ==================== خطوة نقل ملفات الإعدادات الثابتة (Network & DHCP) ====================
-    - name: Inject Custom Configuration Files
-      run: |
-        cd openwrt
-        if [ -d "$GITHUB_WORKSPACE/files" ]; then
-          cp -r $GITHUB_WORKSPACE/files .
-        fi
-
-    - name: Generate Custom Configurations (Force Target Device)
+    # ==================== بناء التجهيزات وتحديد حزم التميز ====================
+    - name: Generate Configurations
       run: |
         cd openwrt
         
-        # إجبار البناء على استهداف البوردة المضافة حديثاً بشكل صريح وثابت
         echo "CONFIG_TARGET_ipq40xx=y" > .config
         echo "CONFIG_TARGET_ipq40xx_generic=y" >> .config
-        echo "CONFIG_TARGET_ipq40xx_DEVICE_Davolink_gapd-7200=y" >> .config
+        echo "CONFIG_TARGET_ipq40xx_DEVICE_davolink_gapd-7200=y" >> .config
         
-        # إضافة حزم الميزات المطلوبة
+        # حزم الواجهة والأدوات المفتوحة لكسر الاحتكار
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-watchcat=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
@@ -112,7 +107,7 @@ jobs:
         
         make defconfig
 
-    - name: Inject Custom Wireless Script
+    - name: Inject Custom Wireless Script (أقصى بث للإشارة)
       run: |
         cd openwrt
         mkdir -p files/etc/uci-defaults
@@ -149,5 +144,5 @@ jobs:
       uses: actions/upload-artifact@v4
       if: steps.compile.outputs.status == 'success'
       with:
-        name: OpenWrt_Davolink_GAPD7200
+        name: OpenWrt_Davolink_GAPD7200_Official
         path: openwrt/bin/targets/ipq40xx/generic/*
