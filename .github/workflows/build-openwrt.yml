@@ -43,22 +43,22 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
 
-    # ==================== سحب ملف الـ DTS المعدل وحقنه ====================
-    - name: Inject Custom DTS into NAND Target
+    # ==================== خطوة الحقن الصحيحة والجذرية لبوردتك ====================
+    - name: Inject Custom DTS and Setup Hardware Profile
       run: |
         cd openwrt
         mkdir -p target/linux/ipq40xx/files/arch/arm/boot/dts/
         
-        # سحب الملف مباشرة من المسار الذي حددته بالمستودع لقراءته
+        # 1. نسخ ملف الـ DTS المخصص الخاص بك إلى مسار الكومبايلر
         if [ -f "$GITHUB_WORKSPACE/configs/qcom-ipq4019-gapd7200.dts" ]; then
           cp "$GITHUB_WORKSPACE/configs/qcom-ipq4019-gapd7200.dts" target/linux/ipq40xx/files/arch/arm/boot/dts/qcom-ipq4019-gapd7200.dts
-          echo "DTS file copied successfully from configs/"
+          echo "DTS File Copied Successfully!"
         else
-          echo "ERROR: DTS File not found in configs/qcom-ipq4019-gapd7200.dts" && exit 1
+          echo "ERROR: DTS File not found!" && exit 1
         fi
 
-        # تعديل ملف nand.mk لإدخال تعريفات وعمارة جهازك
-        cat << 'EOF' >> target/linux/ipq40xx/image/nand.mk
+        # 2. حقن تعريف البوردة الرسمي داخل ملف البناء الرئيسي generic.mk ليظهر كجهاز رسمي
+        cat << 'EOF' >> target/linux/ipq40xx/image/generic.mk
 
         define Device/davolink_gapd-7200
           DEVICE_VENDOR := Davolink
@@ -74,8 +74,8 @@ jobs:
         endef
         TARGET_DEVICES += davolink_gapd-7200
         EOF
-        
-        echo "Device injected into NAND profile successfully!"
+
+        echo "Hardware Profile Registered Officially!"
 
     # ==================== حقن ملفات المعايرة الـ ART المفتوحة ====================
     - name: Inject Custom Firmware ART Files
@@ -86,16 +86,17 @@ jobs:
           cp -r $GITHUB_WORKSPACE/firmware-art/* package/firmware/ipq-wifi/board-to-bin/
         fi
 
-    # ==================== بناء التجهيزات وتحديد حزم التميز ====================
-    - name: Generate Configurations
+    # ==================== إنشاء ملف الإعدادات وإجبار النظام على بناء بوردتك ====================
+    - name: Generate Custom Configurations
       run: |
         cd openwrt
         
+        # مسح أي إعدادات قديمة وبناء ملف مستقل تماماً لجهازك
         echo "CONFIG_TARGET_ipq40xx=y" > .config
         echo "CONFIG_TARGET_ipq40xx_generic=y" >> .config
         echo "CONFIG_TARGET_ipq40xx_DEVICE_davolink_gapd-7200=y" >> .config
         
-        # حزم الواجهة والأدوات المفتوحة لكسر الاحتكار
+        # حزم التميز والواجهة الرسومية وأدوات الربط والشبكات لكسر الاحتكار
         echo "CONFIG_PACKAGE_luci=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-watchcat=y" >> .config
         echo "CONFIG_PACKAGE_luci-app-ttyd=y" >> .config
@@ -105,9 +106,10 @@ jobs:
         echo "CONFIG_PACKAGE_kmod-eoip=y" >> .config
         echo "CONFIG_PACKAGE_ath10k-firmware-qca4019-ct=y" >> .config
         
+        # أمر حاسم لاعتماد البوردة المضافة حديثاً ومنع تصفيرها
         make defconfig
 
-    - name: Inject Custom Wireless Script (أقصى بث للإشارة)
+    - name: Inject Custom Wireless Script (البث بأقصى قوة تضمن التميز)
       run: |
         cd openwrt
         mkdir -p files/etc/uci-defaults
