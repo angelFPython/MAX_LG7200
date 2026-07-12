@@ -49,7 +49,6 @@ jobs:
         mkdir -p openwrt/target/linux/ipq40xx/files/arch/arm/boot/dts/
         cp configs/qcom-ipq4019-gapd7200.dts openwrt/target/linux/ipq40xx/files/arch/arm/boot/dts/
         echo "DTS File Injected Successfully!"
-    # ============================================================================
 
     # ==================== خطوة نقل وحقن ملفات الـ ART العشرة ====================
     - name: Inject and Copy Custom Firmware ART Files
@@ -57,7 +56,16 @@ jobs:
         mkdir -p openwrt/package/firmware/ipq-wifi/board-to-bin/
         cp -r firmware-art/* openwrt/package/firmware/ipq-wifi/board-to-bin/
         echo "All 10 ART/Calibration files injected successfully!"
-    # ============================================================================
+
+    # ==================== خطوة نقل ملفات الإعدادات الثابتة (Network & DHCP) ====================
+    - name: Inject Custom Configuration Files (network & dhcp)
+      run: |
+        if [ -d "files" ]; then
+          cp -r files openwrt/
+          echo "Custom network, dhcp, and system files injected successfully!"
+        else
+          echo "Warning: files directory not found!"
+        fi
 
     - name: Generate Custom Configurations (All Features)
       run: |
@@ -77,25 +85,12 @@ jobs:
         echo "CONFIG_PACKAGE_kmod-eoip=y" >> .config
         echo "CONFIG_PACKAGE_ath10k-firmware-qca4019-ct=y" >> .config
         
-        # تثبيت الإعدادات تلقائياً وتوليد الـ .config النهائي
         make defconfig
 
-    - name: Inject Custom Network & Wireless Scripts (Permanent Fixes)
+    - name: Inject Custom Wireless Script (Permanent Fixes)
       run: |
         cd openwrt
-        mkdir -p files/etc/config
         mkdir -p files/etc/uci-defaults
-
-        # سكربت الدمج النهائي للبورتات (5 بورت كسوتش LAN) وإيقاف الـ DHCP نهائياً لمنع القفلات
-        cat << 'EOF' > files/etc/uci-defaults/99-custom-network
-        uci del network.wan
-        uci del network.wan6
-        uci set network.lan.device='br-lan'
-        uci set network.lan.proto='dhcp'
-        uci del dhcp.lan
-        uci commit network
-        uci commit dhcp
-        EOF
 
         # سكربت تفعيل الواي فاي تلقائياً برابط ثابت وقوة ربط واحترافية الباور العالي 30dBm
         cat << 'EOF' > files/etc/uci-defaults/99-custom-wireless
@@ -110,7 +105,6 @@ jobs:
         wifi
         EOF
         
-        chmod +x files/etc/uci-defaults/99-custom-network
         chmod +x files/etc/uci-defaults/99-custom-wireless
 
     - name: Download Package Dependencies
@@ -135,3 +129,4 @@ jobs:
       with:
         name: OpenWrt_Davolink_GAPD7200
         path: openwrt/bin/targets/ipq40xx/generic/*
+
