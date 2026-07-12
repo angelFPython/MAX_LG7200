@@ -51,6 +51,14 @@ jobs:
         echo "DTS File Injected Successfully!"
     # ============================================================================
 
+    # ==================== خطوة نقل وحقن ملفات الـ ART العشرة ====================
+    - name: Inject and Copy Custom Firmware ART Files
+      run: |
+        mkdir -p openwrt/package/firmware/ipq-wifi/board-to-bin/
+        cp -r firmware-art/* openwrt/package/firmware/ipq-wifi/board-to-bin/
+        echo "All 10 ART/Calibration files injected successfully!"
+    # ============================================================================
+
     - name: Generate Custom Configurations (All Features)
       run: |
         cd openwrt
@@ -127,4 +135,3 @@ jobs:
       with:
         name: OpenWrt_Davolink_GAPD7200
         path: openwrt/bin/targets/ipq40xx/generic/*
-
